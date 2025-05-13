@@ -1,0 +1,11 @@
+{
+  "editor.formatOnSave": false,
+  "editor.tabSize": 2,
+  "files.exclude": {
+    "node_modules": true,
+    "dist": true
+  },
+  "eslint.enable": true,
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "python.languageServer": "None"
+}
