@@ -11,7 +11,7 @@ class EmailManager:
     async def send_email(self, to: str, subject: str, body: str, attachments: list[resend.Attachment] = None):
         try:
             params: resend.Emails.SendParams = {
-                "from": "Acme <onboarding@resend.dev>",
+                "from": "Lite Thinking <onboarding@yoliani.dev>",
                 "to": [to],
                 "subject": subject,
 
