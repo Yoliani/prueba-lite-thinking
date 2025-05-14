@@ -1,5 +1,3 @@
-from traceback import print_exc
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.logging import get_logger
@@ -23,17 +21,17 @@ class ChatRepository:
 
         self.model = ChatOpenAI(
             api_key=settings.API_KEY,
-            model="gpt-4.1-nano" ,
+            model="gpt-4.1-nano",
             temperature=0
         )
         self.db = SQLDatabase.from_uri(settings.DATABASE_URL_SYNC)
-        
-        # Get schema information but filter out the users table for security
+
+        # Get schema information but filter out sensitive tables for security
         full_schema = self.db.get_table_info()
-        # Filter out any information about the users table from the schema
-        self.schema = '\n'.join([line for line in full_schema.split('\n') 
-                                if 'users' not in line.lower()])
-        
+        # Filter out any information about the users and alembic_version tables from the schema
+        self.schema = '\n'.join([line for line in full_schema.split('\n')
+                                 if 'users' not in line.lower() and 'alembic_version' not in line.lower()])
+
         self.db_chain = SQLDatabaseChain.from_llm(
             self.model, self.db)
 
@@ -59,12 +57,13 @@ Question: {question}
 
 IMPORTANT SECURITY RESTRICTIONS:
 1. DO NOT query the 'users' table under any circumstances
-2. DO NOT use any SQL commands that could modify data (INSERT, UPDATE, DELETE, etc.)
-3. Only use SELECT statements for read-only operations
+2. DO NOT query the 'alembic_version' table under any circumstances
+3. DO NOT use any SQL commands that could modify data (INSERT, UPDATE, DELETE, etc.)
+4. Only use SELECT statements for read-only operations
 
 SQL Query:"""
-            
-            # Create a template for the final response - focused on direct answers
+
+            # Create a template for the final response - focused on direct answers in Spanish
             response_template = """You are a helpful assistant answering questions about a database. 
 Give a direct and concise answer to the question based on the SQL results.
 
@@ -73,31 +72,39 @@ Question: {question}
 SQL Query: {query}
 SQL Result: {response}
 
+IMPORTANT: ALWAYS respond in Spanish regardless of the language of the question.
 Answer the question directly without mentioning the SQL query or explaining database details. Keep your answer under 3 sentences."""
 
             # Create prompt templates
             sql_prompt = ChatPromptTemplate.from_template(sql_template)
-            response_prompt = ChatPromptTemplate.from_template(response_template)
+            response_prompt = ChatPromptTemplate.from_template(
+                response_template)
 
             # Function to execute SQL query with security checks
             def run_query(query):
                 try:
-                    # Security check: Prevent queries to the users table
+                    # Security check: Prevent queries to sensitive tables
                     lower_query = query.lower()
                     if 'users' in lower_query or 'user' in lower_query.split():
-                        logger.warning(f"Blocked attempt to query users table: {query}")
-                        return "Access to user data is restricted for security reasons."
-                    
+                        logger.warning(
+                            f"Blocked attempt to query users table: {query}")
+                        return "El acceso a datos de usuarios está restringido por razones de seguridad."
+
+                    if 'alembic_version' in lower_query:
+                        logger.warning(
+                            f"Blocked attempt to query alembic_version table: {query}")
+                        return "El acceso a la tabla alembic_version está restringido por razones de seguridad."
+
                     # Security check: Only allow SELECT statements
                     if not lower_query.strip().startswith('select'):
                         logger.warning(f"Blocked non-SELECT query: {query}")
                         return "Only SELECT queries are allowed."
-                        
+
                     return self.db.run(query)
                 except Exception as e:
                     logger.error(f"Error running SQL query: {e}")
                     return f"Error executing query: {e}"
-            
+
             # Chain to generate SQL
             sql_chain = (
                 RunnablePassthrough.assign(schema=lambda _: self.schema)
@@ -112,7 +119,7 @@ Answer the question directly without mentioning the SQL query or explaining data
                     schema=lambda _: self.schema,
                     response=lambda vars: run_query(vars["query"]),
                 )
-                | response_prompt       
+                | response_prompt
                 | self.model
                 | StrOutputParser()
             )
